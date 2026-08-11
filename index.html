@@ -4,54 +4,72 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MercadoFácil - Calculadora de Compras</title>
-  <!-- Librería OCR para reconocer texto en imágenes -->
+  <!-- Librería OCR para reconocimiento de texto -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 0; }
     body { background-color: #f4f6f9; padding: 15px; color: #333; }
     .card { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 15px; }
     h2 { font-size: 1.1rem; margin-bottom: 10px; color: #1a252c; }
-    input { width: 100%; padding: 10px; font-size: 1rem; border: 1px solid #ccc; border-radius: 8px; margin-top: 5px; }
+    
+    .currency-selector { display: flex; gap: 10px; margin-bottom: 10px; }
+    select, input { padding: 10px; font-size: 1rem; border: 1px solid #ccc; border-radius: 8px; }
+    select { background: #fff; font-weight: bold; }
+    input { width: 100%; }
+
     .total-display { font-size: 1.8rem; font-weight: bold; text-align: center; margin: 10px 0; color: #2e7d32; }
     .progress-bar { width: 100%; height: 12px; background: #e0e0e0; border-radius: 6px; overflow: hidden; }
     .progress-fill { height: 100%; width: 0%; background: #2e7d32; transition: width 0.3s, background 0.3s; }
+    
+    /* Visor de cámara con recuadro objetivo */
     #video-container { position: relative; width: 100%; height: 220px; background: #000; border-radius: 12px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
     video { width: 100%; height: 100%; object-fit: cover; }
+    .scan-target { position: absolute; width: 70%; height: 35%; border: 2px dashed #007bff; border-radius: 8px; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45); pointer-events: none; }
+
     .btn { width: 100%; padding: 12px; font-size: 1rem; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; margin-top: 8px; }
     .btn-primary { background: #007bff; color: white; }
     .btn-scan { background: #28a745; color: white; }
     .btn-danger { background: #dc3545; color: white; }
+    
     ul { list-style: none; max-height: 150px; overflow-y: auto; margin-top: 10px; }
     li { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
-    .status-text { text-align: center; font-size: 0.85rem; color: #666; margin-top: 5px; }
+    .status-text { text-align: center; font-size: 0.85rem; color: #666; margin-top: 5px; font-weight: 5deg; }
   </style>
 </head>
 <body>
 
-  <!-- Control de Presupuesto -->
+  <!-- Control de Moneda y Presupuesto -->
   <div class="card">
-    <h2>Límite de Presupuesto ($)</h2>
-    <input type="number" id="limiteInput" value="100" step="0.01" oninput="actualizarPresupuesto()">
+    <h2>Moneda y Presupuesto Límite</h2>
+    <div class="currency-selector">
+      <select id="monedaSelect" onchange="actualizarPresupuesto()">
+        <option value="Bs.">VES (Bs.)</option>
+        <option value="$" selected>USD ($)</option>
+        <option value="€">EUR (€)</option>
+      </select>
+      <input type="number" id="limiteInput" value="100" step="0.01" oninput="actualizarPresupuesto()" placeholder="Límite">
+    </div>
     <div class="total-display" id="totalDisplay">$0.00</div>
     <div class="progress-bar">
       <div class="progress-fill" id="progressFill"></div>
     </div>
   </div>
 
-  <!-- Visor de Cámara y Escáner OCR -->
+  <!-- Visor de Cámara con Marco de Enfoque -->
   <div class="card">
-    <h2>Escáner de Precios</h2>
+    <h2>Escáner Rápido de Precios</h2>
     <div id="video-container">
       <video id="webcam" autoplay playsinline></video>
+      <div class="scan-target"></div>
     </div>
-    <button class="btn btn-scan" onclick="escanearPrecio()">📷 Capturar y Escanear Precio</button>
-    <p class="status-text" id="statusText">Cámara lista</p>
+    <button class="btn btn-scan" onclick="escanearPrecio()">⚡ Escanear Precio Enfocado</button>
+    <p class="status-text" id="statusText">Inicializando motor de lectura...</p>
   </div>
 
-  <!-- Entrada Manual y Historial -->
+  <!-- Ingreso Manual e Historial -->
   <div class="card">
     <h2>Ingreso Manual</h2>
-    <input type="number" id="montoManual" placeholder="Ej: 5.50" step="0.01">
+    <input type="number" id="montoManual" placeholder="Ej: 15.50" step="0.01">
     <button class="btn btn-primary" onclick="agregarManual()">＋ Agregar al Total</button>
 
     <h2 style="margin-top: 20px;">Historial de Productos</h2>
@@ -63,21 +81,47 @@
 
   <script>
     let totalAcumulado = 0;
+    let historialPrecios = [];
     let video = document.getElementById('webcam');
     let statusText = document.getElementById('statusText');
+    let ocrWorker = null;
 
-    // Inicializar Cámara del teléfono
+    // 1. Inicializar Worker OCR en segundo plano para máxima velocidad
+    async function initOCR() {
+      try {
+        ocrWorker = await Tesseract.createWorker('eng');
+        statusText.innerText = "Cámara y escáner listos";
+      } catch (e) {
+        statusText.innerText = "Error cargando módulo OCR";
+      }
+    }
+    initOCR();
+
+    // 2. Activar Cámara
     navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
       .then(stream => { video.srcObject = stream; })
       .catch(err => { statusText.innerText = "Error al acceder a la cámara"; });
 
+    function obtenerSimboloMoneda() {
+      return document.getElementById('monedaSelect').value;
+    }
+
     function agregarMonto(monto) {
       totalAcumulado += monto;
-      let lista = document.getElementById('listaHistorial');
-      let li = document.createElement('li');
-      li.innerHTML = `<span>Producto</span> <strong>+$${monto.toFixed(2)}</strong>`;
-      lista.prepend(li);
+      historialPrecios.unshift(monto);
+      renderHistorial();
       actualizarPresupuesto();
+    }
+
+    function renderHistorial() {
+      let lista = document.getElementById('listaHistorial');
+      let sim = obtenerSimboloMoneda();
+      lista.innerHTML = '';
+      historialPrecios.forEach(monto => {
+        let li = document.createElement('li');
+        li.innerHTML = `<span>Producto</span> <strong>+${sim}${monto.toFixed(2)}</strong>`;
+        lista.appendChild(li);
+      });
     }
 
     function agregarManual() {
@@ -93,15 +137,18 @@
       let limite = parseFloat(document.getElementById('limiteInput').value) || 0;
       let totalEl = document.getElementById('totalDisplay');
       let fillEl = document.getElementById('progressFill');
+      let sim = obtenerSimboloMoneda();
 
-      totalEl.innerText = `$${totalAcumulado.toFixed(2)}`;
+      totalEl.innerText = `${sim}${totalAcumulado.toFixed(2)}`;
+      renderHistorial();
+
       let porcentaje = limite > 0 ? (totalAcumulado / limite) * 100 : 0;
       fillEl.style.width = `${Math.min(porcentaje, 100)}%`;
 
       if (totalAcumulado > limite && limite > 0) {
         totalEl.style.color = '#dc3545';
         fillEl.style.background = '#dc3545';
-        alert('⚠️ ¡Has superado tu presupuesto límite!');
+        alert(`⚠️ ¡Has superado tu presupuesto límite de ${sim}${limite.toFixed(2)}!`);
       } else if (porcentaje >= 85) {
         totalEl.style.color = '#ffc107';
         fillEl.style.background = '#ffc107';
@@ -111,39 +158,59 @@
       }
     }
 
+    // 3. Captura optimizada recortando solo el área del recuadro central
     async function escanearPrecio() {
+      if (!ocrWorker) {
+        statusText.innerText = "Aún cargando escáner, espera un momento...";
+        return;
+      }
+
       let canvas = document.getElementById('canvas');
       let context = canvas.getContext('2d');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-      statusText.innerText = "Procesando imagen...";
+      // Recortar únicamente la zona del recuadro objetivo (70% ancho, 35% alto)
+      let cropW = video.videoWidth * 0.70;
+      let cropH = video.videoHeight * 0.35;
+      let startX = (video.videoWidth - cropW) / 2;
+      let startY = (video.videoHeight - cropH) / 2;
+
+      canvas.width = cropW;
+      canvas.height = cropH;
+
+      context.drawImage(video, startX, startY, cropW, cropH, 0, 0, cropW, cropH);
+
+      statusText.innerText = "Escaneando...";
 
       try {
-        const worker = await Tesseract.createWorker('eng');
-        const ret = await worker.recognize(canvas);
-        await worker.terminate();
+        const ret = await ocrWorker.recognize(canvas);
+        const text = ret.data.text;
 
-        // Buscar números decimales en el texto detectado
-        const matches = ret.data.text.match(/\d+[\.,]\d{2}/g);
+        // Extraer montos numéricos (formatos con punto o coma decimal)
+        const matches = text.match(/\d+[\.,]\d{2}|\d+/g);
         if (matches && matches.length > 0) {
-          let precioDetectado = parseFloat(matches[0].replace(',', '.'));
-          statusText.innerText = `Detectado: $${precioDetectado.toFixed(2)}`;
-          agregarMonto(precioDetectado);
+          let numLimpio = matches[0].replace(',', '.');
+          let precioDetectado = parseFloat(numLimpio);
+
+          if (!isNaN(precioDetectado) && precioDetectado > 0) {
+            statusText.innerText = `Detectado: ${obtenerSimboloMoneda()}${precioDetectado.toFixed(2)}`;
+            agregarMonto(precioDetectado);
+          } else {
+            statusText.innerText = "Número no válido. Reintenta.";
+          }
         } else {
-          statusText.innerText = "No se detectó un precio claro. Intenta de nuevo.";
+          statusText.innerText = "Alinea bien el precio dentro del cuadro.";
         }
       } catch (e) {
-        statusText.innerText = "Error en el escáner OCR.";
+        statusText.innerText = "Error en la lectura.";
       }
     }
 
     function reiniciarTodo() {
       totalAcumulado = 0;
-      document.getElementById('listaHistorial').innerHTML = '';
+      historialPrecios = [];
+      renderHistorial();
       actualizarPresupuesto();
-      statusText.innerText = "Cámara lista";
+      statusText.innerText = "Cámara y escáner listos";
     }
   </script>
 </body>
