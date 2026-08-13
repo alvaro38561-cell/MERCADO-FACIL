@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MercadoFácil - Calculadora de Compras</title>
   <!-- Librería OCR para reconocimiento de texto -->
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="./tesseract.min.js"></script>
   <style>
     * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 0; }
     body { background-color: #f4f6f9; padding: 15px; color: #333; }
@@ -281,7 +281,14 @@
       renderHistorial();
       actualizarPresupuesto();
       statusText.innerText = "Cámara y escáner listos";
-    }
+    }// Activar caché offline
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => console.log('App lista para uso Offline'))
+      .catch(err => console.log('Error instalando modo offline', err));
+  });
+}
   </script>
 </body>
 </html>
