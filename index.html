@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MercadoFácil - Calculadora de Compras</title>
-  <!-- Librería OCR para reconocimiento de texto -->
+  <!-- Librería OCR para reconocimiento de texto local -->
   <script src="./tesseract.min.js"></script>
   <style>
     * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 0; }
-    body { background-color: #f4f6f9; padding: 15px; color: #333; }
+    body { background-color: #f4f6f9; padding: 15px; padding-bottom: 50px; color: #333; position: relative; min-height: 100vh; }
     .card { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 15px; }
     h2 { font-size: 1.1rem; margin-bottom: 10px; color: #1a252c; }
     
@@ -34,6 +34,23 @@
     ul { list-style: none; max-height: 150px; overflow-y: auto; margin-top: 10px; }
     li { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
     .status-text { text-align: center; font-size: 0.85rem; color: #666; margin-top: 5px; font-weight: 500; }
+
+    /* Estilo de la Firma de Autoría en la esquina inferior derecha */
+    .author-signature {
+      position: fixed;
+      bottom: 10px;
+      right: 15px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #64748b;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 4px 10px;
+      border-radius: 20px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+      backdrop-filter: blur(4px);
+      z-index: 999;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
@@ -69,13 +86,17 @@
   <!-- Ingreso Manual e Historial -->
   <div class="card">
     <h2>Ingreso Manual</h2>
-    <!-- El input nativo 'number' usa punto decimal internamente, pero el usuario puede escribir coma en algunos teclados -->
     <input type="text" id="montoManual" placeholder="Ej: 1.050,50 o 1050,50" inputmode="decimal">
     <button class="btn btn-primary" onclick="agregarManual()">＋ Agregar al Total</button>
 
     <h2 style="margin-top: 20px;">Historial de Productos</h2>
     <ul id="listaHistorial"></ul>
     <button class="btn btn-danger" onclick="reiniciarTodo()" style="margin-top: 15px;">Reiniciar Todo</button>
+  </div>
+
+  <!-- Firma de Autoría -->
+  <div class="author-signature">
+    App creada por Alvaro Briceño
   </div>
 
   <canvas id="canvas" style="display:none;"></canvas>
@@ -89,31 +110,20 @@
 
     // --- FUNCIONES DE FORMATEO (LÓGICA PRINCIPAL) ---
 
-    // 1. Limpia texto OCR para convertir formato 1.000,00 a número JavaScript (1000.00)
     function limpiarMontoOCR(textoRaw) {
-      // Remover todo lo que no sea dígito, punto o coma
       let textoLimpio = textoRaw.replace(/[^\d\.,]/g, '');
-
       if (!textoLimpio) return null;
 
-      // ANALIZAR FORMATO
-      // Contar comas y puntos
       const numeroComas = (textoLimpio.match(/,/g) || []).length;
       const numeroPuntos = (textoLimpio.match(/\./g) || []).length;
 
-      // Caso ideal o muy común en el formato solicitado: miles con punto, decimal con coma (1.234,56)
       if (numeroPuntos >= 0 && numeroComas === 1) {
-        // Remover todos los puntos (miles)
         let sinMiles = textoLimpio.replace(/\./g, '');
-        // Convertir la única coma en punto (decimal)
         let formatoJS = sinMiles.replace(',', '.');
         return parseFloat(formatoJS);
       }
 
-      // Caso de fallback: Si no hay comas pero hay puntos, asumir que el último punto es decimal (1234.56 o 1.234.56)
-      // Tesseract a veces confunde la coma con un punto si la imagen no es perfecta.
       if (numeroComas === 0 && numeroPuntos > 0) {
-        // Encontrar el último punto
         let posicionUltimoPunto = textoLimpio.lastIndexOf('.');
         let parteEntera = textoLimpio.substring(0, posicionUltimoPunto).replace(/\./g, '');
         let parteDecimal = textoLimpio.substring(posicionUltimoPunto + 1);
@@ -121,7 +131,6 @@
         return parseFloat(formatoJS);
       }
 
-      // Fallback final: intentar parseFloat puro si solo hay dígitos
       if (numeroComas === 0 && numeroPuntos === 0) {
         return parseFloat(textoLimpio);
       }
@@ -129,10 +138,8 @@
       return null;
     }
 
-    // 2. Formatea número JavaScript (1000.00) a formato visual (Bs.1.000,00)
     function formatearVisual(monto) {
       if (isNaN(monto)) return "0,00";
-      // toLocaleString con 'es-VE' o 'de-DE' usa . para miles y , para decimales
       return monto.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
@@ -172,7 +179,6 @@
       lista.innerHTML = '';
       historialPrecios.forEach(monto => {
         let li = document.createElement('li');
-        // Usar la función de formateo visual
         li.innerHTML = `<span>Producto</span> <strong>+${sim}${formatearVisual(monto)}</strong>`;
         lista.appendChild(li);
       });
@@ -180,7 +186,6 @@
 
     function agregarManual() {
       let input = document.getElementById('montoManual');
-      // Para input text manual, también necesitamos limpiar el formato 1.000,00
       let monto = limpiarMontoOCR(input.value); 
       
       if (monto && monto > 0) {
@@ -193,14 +198,12 @@
 
     function actualizarPresupuesto() {
       let limiteInput = document.getElementById('limiteInput').value;
-      // El input nativo 'number' devuelve formato JS con punto.
       let limite = parseFloat(limiteInput) || 0; 
 
       let totalEl = document.getElementById('totalDisplay');
       let fillEl = document.getElementById('progressFill');
       let sim = obtenerSimboloMoneda();
 
-      // Usar la función de formateo visual
       totalEl.innerText = `${sim}${formatearVisual(totalAcumulado)}`;
       renderHistorial();
 
@@ -210,7 +213,6 @@
       if (totalAcumulado > limite && limite > 0) {
         totalEl.style.color = '#dc3545';
         fillEl.style.background = '#dc3545';
-        // Alertar con formato visual
         alert(`⚠️ ¡Has superado tu presupuesto límite de ${sim}${formatearVisual(limite)}!`);
       } else if (porcentaje >= 85) {
         totalEl.style.color = '#ffc107';
@@ -246,20 +248,15 @@
         const ret = await ocrWorker.recognize(canvas);
         const textRaw = ret.data.text;
 
-        // --- NUEVA LÓGICA DE EXTRACCIÓN Y LIMPIEZA ---
-        
-        // Encontrar posibles números (secuencias de dígitos, puntos y comas)
         const matches = textRaw.match(/[\d\.,]+/g);
-        
         let montoDetectadoValido = null;
 
         if (matches && matches.length > 0) {
-          // Evaluar el primer match que parezca un número válido
           for (let match of matches) {
             let monto = limpiarMontoOCR(match);
-            if (monto && monto > 0 && monto < 100000000) { // Validar rango razonable
+            if (monto && monto > 0 && monto < 100000000) {
               montoDetectadoValido = monto;
-              break; // Detenerse en el primero válido
+              break;
             }
           }
         }
@@ -281,14 +278,16 @@
       renderHistorial();
       actualizarPresupuesto();
       statusText.innerText = "Cámara y escáner listos";
-    }// Activar caché offline
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js')
-      .then(reg => console.log('App lista para uso Offline'))
-      .catch(err => console.log('Error instalando modo offline', err));
-  });
-}
+    }
+
+    // Registrar Service Worker para funcionamiento Offline
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(reg => console.log('App lista para uso Offline'))
+          .catch(err => console.log('Error instalando modo offline', err));
+      });
+    }
   </script>
 </body>
 </html>
