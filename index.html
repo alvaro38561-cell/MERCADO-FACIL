@@ -287,7 +287,16 @@
           .then(reg => console.log('App lista para uso Offline'))
           .catch(err => console.log('Error instalando modo offline', err));
       });
-    }
+    }function eliminarProducto(index) {
+  // Elimina el producto seleccionado del arreglo
+  productos.splice(index, 1);
+
+  // Actualiza la memoria local
+  localStorage.setItem('mercado_productos', JSON.stringify(productos));
+
+  // Vuelve a renderizar la lista y recarga los totales
+  renderizarLista();
+}
   </script>
 </body>
 </html>
